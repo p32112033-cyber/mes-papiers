@@ -1,5 +1,5 @@
 // Change VERSION à chaque mise à jour des fichiers pour que les téléphones rechargent la nouvelle page.
-const VERSION = 'mes-papiers-v1';
+const VERSION = 'mes-papiers-v2';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

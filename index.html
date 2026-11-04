@@ -123,7 +123,8 @@ button{cursor:pointer;color:inherit}
 <div id="modal" class="modal" hidden></div>
 <div id="toast" class="toast" hidden></div>
 <input type="file" id="cam" accept="image/*" capture="environment" class="vh" tabindex="-1">
-<input type="file" id="pick" class="vh" tabindex="-1">
+<input type="file" id="pick" accept=".pdf,.doc,.docx,.xls,.xlsx,.odt,.ods,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv" class="vh" tabindex="-1">
+<input type="file" id="gal" accept="image/*" class="vh" tabindex="-1">
 <input type="file" id="imp" accept=".json,application/json" class="vh" tabindex="-1">
 
 <script>
@@ -291,7 +292,8 @@ function addFlow(id) {
   pendingFolder = id || null;
   sheet(`<h2>Ajouter un document</h2>
     <label class="btn primary" for="cam" tabindex="0">${ic('cam')} Prendre une photo</label>
-    <label class="btn" for="pick" tabindex="0">${ic('file')} Choisir un fichier</label>
+    <label class="btn" for="gal" tabindex="0">${ic('cam')} Choisir une image de la galerie</label>
+    <label class="btn" for="pick" tabindex="0">${ic('file')} Choisir un document (PDF, Word…)</label>
     <button class="btn" data-act="newnote">${ic('note')} Écrire une note</button>
     <button class="btn" data-r="no">Annuler</button>`);
 }
@@ -333,7 +335,7 @@ async function details(file, src) {
   docs.push(d); await save('docs', d);
   toast('Document enregistré'); go({n:'folder', id:d.folder});
 }
-for (const id of ['cam', 'pick']) $('#' + id).onchange = e => {
+for (const id of ['cam', 'pick', 'gal']) $('#' + id).onchange = e => {
   const f = e.target.files[0]; e.target.value = '';
   if (!f) return; sheet.close(null); details(f, id);
 };
