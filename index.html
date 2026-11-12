@@ -167,12 +167,15 @@ const urls = new Map();
 const urlOf = d => { let u = urls.get(d.id); if (!u) { u = URL.createObjectURL(d.blob); urls.set(d.id, u); } return u; };
 const isImg = d => (d.type || '').startsWith('image/');
 const folderById = id => folders.find(f => f.id === id);
-const liveFolders = () => folders.filter(f => !f.deleted);
+const isLive = f => !!f && !f.deleted && (!f.parent || isLive(folderById(f.parent)));
+const liveFolders = () => { const l = folders.filter(isLive); return l.filter(f => !f.parent).flatMap(p => [p, ...l.filter(x => x.parent === p.id)]); };
+const fname = f => f.parent && folderById(f.parent) ? folderById(f.parent).name + ' › ' + f.name : f.name;
+const subsOf = id => liveFolders().filter(x => x.parent === id);
 let sort = 'new';
 const sortDocs = l => l.sort(sort === 'old' ? (a, b) => a.created - b.created : sort === 'az' ? (a, b) => a.title.localeCompare(b.title, 'fr', {sensitivity:'base'}) : (a, b) => b.created - a.created);
 const docsOf = id => sortDocs(docs.filter(d => d.folder === id && !d.deleted));
-const allDocs = () => sortDocs(docs.filter(d => !d.deleted && folderById(d.folder) && !folderById(d.folder).deleted));
-const trashDocs = () => docs.filter(d => d.deleted && folderById(d.folder) && !folderById(d.folder).deleted);
+const allDocs = () => sortDocs(docs.filter(d => !d.deleted && isLive(folderById(d.folder))));
+const trashDocs = () => docs.filter(d => d.deleted && isLive(folderById(d.folder)));
 const trashFolders = () => folders.filter(f => f.deleted);
 const trashCount = () => trashDocs().length + trashFolders().length;
 
@@ -221,11 +224,11 @@ const go = v => { view = v; render(); window.scrollTo(0, 0); };
 
 const sortBar = () => `<label class="sb">Trier par <select id="sort" class="in">${[['new','Les plus récents'],['old','Les plus anciens'],['az','Nom, de A à Z']].map(([v, l]) => `<option value="${v}"${sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`;
 const tile = f => {
-  const n = docsOf(f.id).length;
+  const n = docsOf(f.id).length + subsOf(f.id).reduce((t, x) => t + docsOf(x.id).length, 0);
   return `<button class="tile" style="background:var(--f${f.c % 6})" data-act="open" data-id="${f.id}">${ic('folder', 34)}<span class="tn">${esc(f.name)}</span><span class="tc">${n ? n + ' document' + (n > 1 ? 's' : '') : 'Aucun document'}</span></button>`;
 };
 const thumb = d => isImg(d) ? `<img class="th" src="${urlOf(d)}" alt="">` : `<span class="th">${ic(d.type === 'note' ? 'note' : 'file', 30)}</span>`;
-const docRow = (d, withFolder) => `<button class="row" data-act="doc" data-id="${d.id}">${thumb(d)}<span class="tx"><span class="rn">${esc(d.title)}</span><span class="rs">${d.type === 'note' ? 'Note · ' : ''}${fmt(d.created)}${withFolder && folderById(d.folder) ? ' · ' + esc(folderById(d.folder).name) : ''}</span></span></button>`;
+const docRow = (d, withFolder) => `<button class="row" data-act="doc" data-id="${d.id}">${thumb(d)}<span class="tx"><span class="rn">${esc(d.title)}</span><span class="rs">${d.type === 'note' ? 'Note · ' : ''}${fmt(d.created)}${withFolder && folderById(d.folder) ? ' · ' + esc(fname(folderById(d.folder))) : ''}</span></span></button>`;
 
 function homeBody() {
   const b = $('#home-body'), t = norm(q.trim());
@@ -235,7 +238,7 @@ function homeBody() {
     return;
   }
   const n = trashCount();
-  b.innerHTML = `<h2>Mes dossiers</h2><div class="tiles">${liveFolders().map(tile).join('')}</div>
+  b.innerHTML = `<h2>Mes dossiers</h2><div class="tiles">${liveFolders().filter(f => !f.parent).map(tile).join('')}</div>
     <div class="stack"><button class="btn" data-act="all">Tous mes documents</button><button class="btn" data-act="newfolder">${ic('plus')} Nouveau dossier</button>
     <button class="btn" data-act="trash">Corbeille${n ? ' (' + n + ')' : ''}</button>
     <button class="btn" data-act="backup">Sauvegarde</button></div>`;
@@ -251,13 +254,14 @@ function render() {
     homeBody();
     if (!db && db !== undefined && window.__dbFailed) $('#warn').hidden = false;
   } else if (view.n === 'folder') {
-    const f = folderById(view.id); if (!f || f.deleted) return go({n:'home'});
-    const l = docsOf(f.id);
-    app.innerHTML = `<button class="back" data-act="home">${ic('back')} Mes dossiers</button>
+    const f = folderById(view.id); if (!isLive(f)) return go({n:'home'});
+    const l = docsOf(f.id), subs = subsOf(f.id), par = f.parent ? folderById(f.parent) : null;
+    app.innerHTML = `<button class="back" ${par ? 'data-act="folder" data-id="' + par.id + '"' : 'data-act="home"'}>${ic('back')} ${par ? esc(par.name) : 'Mes dossiers'}</button>
       <h1 class="fh" style="background:var(--f${f.c % 6})">${esc(f.name)}</h1>
       <button class="btn primary" data-act="add" data-id="${f.id}">${ic('cam')} Ajouter un document ici</button>
-      ${l.length ? (l.length > 1 ? sortBar() : '') + `<div class="list">${l.map(d => docRow(d)).join('')}</div>` : '<p class="empty">Ce dossier est vide. Touchez « Ajouter un document ici » pour commencer.</p>'}
-      <div class="stack"><button class="btn" data-act="renamefolder" data-id="${f.id}">Changer le nom du dossier</button>
+      ${subs.length ? '<h2>Sous-dossiers</h2><div class="tiles">' + subs.map(tile).join('') + '</div>' : ''}
+      ${l.length ? (l.length > 1 ? sortBar() : '') + `<div class="list">${l.map(d => docRow(d)).join('')}</div>` : (subs.length ? '' : '<p class="empty">Ce dossier est vide. Touchez « Ajouter un document ici » pour commencer.</p>')}
+      <div class="stack">${f.parent ? '' : `<button class="btn" data-act="newsub" data-id="${f.id}">${ic('plus')} Nouveau sous-dossier</button>`}<button class="btn" data-act="renamefolder" data-id="${f.id}">Changer le nom du dossier</button>
       <button class="btn danger" data-act="delfolder" data-id="${f.id}">Supprimer le dossier</button></div>`;
   } else if (view.n === 'doc') {
     const d = docs.find(x => x.id === view.id); if (!d || d.deleted) return go({n:'home'});
@@ -280,7 +284,7 @@ function render() {
       <p class="hint">Rien n'est perdu tant que vous ne touchez pas « Supprimer pour toujours ».</p>
       ${tf.length + td.length ? '' : '<p class="empty">La corbeille est vide.</p>'}
       ${tf.map(f => `<div class="trow"><strong>Dossier : ${esc(f.name)}</strong><span class="meta">${docs.filter(d => d.folder === f.id).length} document(s) dedans</span><button class="btn primary" data-act="restorefolder" data-id="${f.id}">Remettre ce dossier</button><button class="btn danger" data-act="purgefolder" data-id="${f.id}">Supprimer pour toujours</button></div>`).join('')}
-      ${td.map(d => `<div class="trow"><strong>${esc(d.title)}</strong><span class="meta">Dossier : ${esc(folderById(d.folder).name)}</span><button class="btn primary" data-act="restoredoc" data-id="${d.id}">Remettre ce document</button><button class="btn danger" data-act="purgedoc" data-id="${d.id}">Supprimer pour toujours</button></div>`).join('')}
+      ${td.map(d => `<div class="trow"><strong>${esc(d.title)}</strong><span class="meta">Dossier : ${esc(fname(folderById(d.folder)))}</span><button class="btn primary" data-act="restoredoc" data-id="${d.id}">Remettre ce document</button><button class="btn danger" data-act="purgedoc" data-id="${d.id}">Supprimer pour toujours</button></div>`).join('')}
       ${tf.length + td.length ? '<button class="btn danger" data-act="emptytrash">Vider la corbeille</button>' : ''}`;
   }
 }
@@ -307,7 +311,7 @@ async function noteFlow(d, pre) {
   const r = await sheet(`<h2>${d ? 'Modifier la note' : 'Nouvelle note'}</h2>
     <label for="t">Titre</label><input id="t" class="in" value="${esc(d ? d.title : '')}" maxlength="80">
     <label for="n">Texte</label><textarea id="n" class="in ta" rows="8">${esc(d ? d.text || '' : pre || '')}</textarea>
-    ${d ? '' : `<p>Dans quel dossier ?</p><div class="chips">${liveFolders().map(f => `<button class="chip${f.id === f0 ? ' on' : ''}" data-f="${f.id}">${esc(f.name)}</button>`).join('')}</div>`}
+    ${d ? '' : `<p>Dans quel dossier ?</p><div class="chips">${liveFolders().map(f => `<button class="chip${f.id === f0 ? ' on' : ''}" data-f="${f.id}">${esc(fname(f))}</button>`).join('')}</div>`}
     <button class="btn primary" data-r="ok">Enregistrer</button><button class="btn" data-r="no">Annuler</button>`);
   if (!r) return;
   if (d) { d.title = r.text || d.title; d.text = r.area; await save('docs', d); toast('Note enregistrée'); render(); return; }
@@ -328,7 +332,7 @@ async function details(file, src) {
   const r = await sheet(`<h2>Enregistrer le document</h2>
     <label for="t">Nom du document</label><input id="t" class="in" value="${esc(base)}" maxlength="80">
     <p>Dans quel dossier ?</p>
-    <div class="chips">${liveFolders().map(f => `<button class="chip${f.id === f0 ? ' on' : ''}" data-f="${f.id}">${esc(f.name)}</button>`).join('')}</div>
+    <div class="chips">${liveFolders().map(f => `<button class="chip${f.id === f0 ? ' on' : ''}" data-f="${f.id}">${esc(fname(f))}</button>`).join('')}</div>
     <button class="btn primary" data-r="ok">Enregistrer</button><button class="btn" data-r="no">Annuler</button>`);
   if (!r) return;
   const d = {id:uid(), folder:r.folder || f0, title:r.text || base, created:Date.now(), type:file.type || 'application/octet-stream', name:file.name, blob:file, deleted:0};
@@ -398,7 +402,7 @@ $('#imp').onchange = async e => {
 
 /* ---------- Actions ---------- */
 async function purgeDoc(d) { docs = docs.filter(x => x !== d); const u = urls.get(d.id); if (u) { URL.revokeObjectURL(u); urls.delete(d.id); } await drop('docs', d.id); }
-async function purgeFolder(f) { for (const d of docs.filter(x => x.folder === f.id)) await purgeDoc(d); folders = folders.filter(x => x !== f); await drop('folders', f.id); }
+async function purgeFolder(f) { for (const c of folders.filter(x => x.parent === f.id)) await purgeFolder(c); for (const d of docs.filter(x => x.folder === f.id)) await purgeDoc(d); folders = folders.filter(x => x !== f); await drop('folders', f.id); }
 const setDel = (store, o, v) => { o.deleted = v; return save(store, o); };
 
 document.addEventListener('click', async e => {
@@ -422,14 +426,21 @@ document.addEventListener('click', async e => {
     const nf = {id:uid(), name, c:folders.length % 6, created:Date.now(), deleted:0};
     folders.push(nf); await save('folders', nf); render();
   }
+  else if (a === 'newsub') {
+    const name = await askText('Nom du sous-dossier', '', 'Créer'); if (!name) return;
+    const used = [f.c % 6, ...subsOf(f.id).map(x => x.c % 6)];
+    let c = [0, 1, 2, 3, 4, 5].find(i => !used.includes(i)); if (c === undefined) c = (f.c + used.length) % 6;
+    const ns = {id:uid(), name, parent:f.id, c, created:Date.now(), deleted:0};
+    folders.push(ns); await save('folders', ns); render();
+  }
   else if (a === 'renamefolder') { const name = await askText('Nom du dossier', f.name); if (!name) return; f.name = name; await save('folders', f); render(); }
   else if (a === 'delfolder') {
-    await setDel('folders', f, Date.now()); go({n:'home'});
+    await setDel('folders', f, Date.now()); go(f.parent ? {n:'folder', id:f.parent} : {n:'home'});
     toast('Dossier mis à la corbeille', async () => { await setDel('folders', f, 0); render(); });
   }
   else if (a === 'renamedoc') { const t = await askText('Nom du document', d.title); if (!t) return; d.title = t; await save('docs', d); render(); }
   else if (a === 'movedoc') {
-    const r = await sheet(`<h2>Déplacer dans quel dossier ?</h2><div class="chips">${liveFolders().map(x => `<button class="opt" data-r="${x.id}">${esc(x.name)}</button>`).join('')}</div><button class="btn" data-r="no">Annuler</button>`);
+    const r = await sheet(`<h2>Déplacer dans quel dossier ?</h2><div class="chips">${liveFolders().map(x => `<button class="opt" data-r="${x.id}">${esc(fname(x))}</button>`).join('')}</div><button class="btn" data-r="no">Annuler</button>`);
     if (!r || !folderById(r)) return; d.folder = r; await save('docs', d); toast('Document déplacé'); go({n:'doc', id:d.id});
   }
   else if (a === 'deldoc') {
